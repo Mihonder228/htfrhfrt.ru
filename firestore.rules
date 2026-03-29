@@ -1,0 +1,141 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth UID
+    //   - email: string (required, immutable) - User's email address
+    //   - role: string (required, immutable for non-admins) - 'user' or 'admin'
+    //   - createdAt: timestamp (required, immutable) - Creation timestamp
+    //
+    // Collection: users_public
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth UID
+    //   - username: string (required) - Display name
+    //   - gold: number (required) - Amount of gold
+    //   - collection: map (required) - Map of cardId to count
+    //   - deck: list (required) - Array of card IDs in the active deck
+    //   - friends: list (optional) - Array of friend UIDs
+    //   - lastLoginWeek: number (optional) - Week number of last login
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "dudinovaekaterina@gmail.com" && request.auth.token.email_verified == true));
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    
+    function isValidUserPrivate(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['user', 'admin'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidUserPublic(data) {
+      return hasRequiredFields(['uid', 'username', 'gold', 'collection', 'deck']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.username is string && data.username.size() > 0 && data.username.size() < 50 &&
+             data.gold is number && data.gold >= 0 &&
+             data.collection is map &&
+             data.deck is list && data.deck.size() <= 4 &&
+             (!('friends' in data) || (data.friends is list && data.friends.size() <= 100)) &&
+             (!('lastLoginWeek' in data) || data.lastLoginWeek is number);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Read: Only owner or admin can read the private user profile
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Create: Owner can create their own profile. Role must be 'user' unless created by an admin.
+      allow create: if isAuthenticated() && 
+                       isOwner(userId) && 
+                       isValidUserPrivate(request.resource.data) && 
+                       uidUnchanged() &&
+                       ((request.resource.data.role == 'user') || isAdmin());
+                       
+      // Update: Owner can update their profile, but cannot change immutable fields. Admin can update anything.
+      allow update: if isAuthenticated() && 
+                       isValidUserPrivate(request.resource.data) &&
+                       (
+                         (isOwner(userId) && 
+                          uidNotModified() && 
+                          areImmutableFieldsUnchanged(['email', 'role', 'createdAt'])) 
+                         || isAdmin()
+                       );
+                       
+      // Delete: Only admin can delete users
+      allow delete: if isAdmin();
+    }
+
+    match /users_public/{userId} {
+      // Read: Any authenticated user can read public profiles
+      allow read: if isAuthenticated();
+      
+      // Create: Owner can create their own public profile
+      allow create: if isAuthenticated() && 
+                       isOwner(userId) && 
+                       isValidUserPublic(request.resource.data) && 
+                       uidUnchanged();
+                       
+      // Update: Owner can update their public profile
+      allow update: if isAuthenticated() && 
+                       isOwner(userId) && 
+                       isValidUserPublic(request.resource.data) && 
+                       uidNotModified();
+                       
+      // Delete: Only admin can delete users
+      allow delete: if isAdmin();
+    }
+  }
+}

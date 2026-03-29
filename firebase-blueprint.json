@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Represents private player account data.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User's email address"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "User's role"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of account creation"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Represents public player game state.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "username": {
+          "type": "string",
+          "description": "Display name of the user"
+        },
+        "gold": {
+          "type": "number",
+          "description": "Amount of gold the user has"
+        },
+        "collection": {
+          "type": "object",
+          "description": "Map of cardId to count"
+        },
+        "deck": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Array of card IDs in the user's active deck"
+        },
+        "friends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Array of friend UIDs"
+        },
+        "lastLoginWeek": {
+          "type": "number",
+          "description": "The week number of the user's last login"
+        }
+      },
+      "required": ["uid", "username", "gold", "collection", "deck"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserPrivate"
+      },
+      "description": "Stores private user profiles."
+    },
+    "/users_public/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserPublic"
+      },
+      "description": "Stores public user game state."
+    }
+  }
+}
